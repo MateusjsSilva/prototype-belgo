@@ -115,8 +115,73 @@
 
 
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            // --- DATA ---
+        (function() {
+            'use strict';
+
+            // ============================================
+            // UTILITY FUNCTIONS
+            // ============================================
+            
+            /**
+             * Escape HTML to prevent XSS attacks
+             * @param {string} text - Text to escape
+             * @returns {string} Escaped text
+             */
+            function escapeHtml(text) {
+                if (!text) return '';
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            /**
+             * Format number as Brazilian currency
+             * @param {number} value - Number to format
+             * @returns {string} Formatted currency string
+             */
+            function formatCurrency(value) {
+                if (isNaN(value)) return 'R$ 0,00';
+                return 'R$ ' + value.toFixed(2).replace('.', ',');
+            }
+
+            /**
+             * Format date to Brazilian format
+             * @param {string} dateString - Date string (YYYY-MM-DD)
+             * @returns {string} Formatted date (DD/MM/YYYY)
+             */
+            function formatDate(dateString) {
+                if (!dateString) return '';
+                try {
+                    const date = new Date(dateString + 'T00:00:00');
+                    return date.toLocaleDateString('pt-BR');
+                } catch (e) {
+                    console.error('Invalid date:', dateString);
+                    return dateString;
+                }
+            }
+
+            /**
+             * Validate email format
+             * @param {string} email - Email to validate
+             * @returns {boolean} True if valid
+             */
+            function isValidEmail(email) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+            }
+
+            /**
+             * Validate positive number
+             * @param {number} value - Number to validate
+             * @returns {boolean} True if valid
+             */
+            function isValidPositiveNumber(value) {
+                return !isNaN(value) && value >= 0;
+            }
+
+            // ============================================
+            // DATA STORAGE
+            // ============================================
+            
             // Mock data simulating a database
             let insumos = [
                 { id: 1, nome: 'FECH STAM 603/11 BUZ 74MM ESP INOX PC', unidade: 'PC', sku: 'FS603', preco: 45.50, min: 10, saldo: 15, fornecedor: 'Stam' },
@@ -142,11 +207,17 @@
                 { id: 3, email: 'user2@email.com', role: 'User' },
             ];
 
-            // --- STATE ---
+            // ============================================
+            // APPLICATION STATE
+            // ============================================
+            
             let currentPage = 'dashboard';
             let chartInstance = null;
 
-            // --- ROUTING & PAGE RENDERING ---
+            // ============================================
+            // DOM ELEMENTS
+            // ============================================
+            
             const contentEl = document.getElementById('page-content');
             const navLinks = document.querySelectorAll('.nav-link');
 
@@ -199,26 +270,102 @@
 
             // --- PAGE TEMPLATES ---
 
+            // ============================================
+            // ROUTING & NAVIGATION
+            // ============================================
+            
+            function navigateTo(page) {
+                if (!page) return;
+                currentPage = page;
+                renderPage();
+                updateNavLinks();
+            }
+
+            function updateNavLinks() {
+                navLinks.forEach(link => {
+                    if (link.dataset.page === currentPage) {
+                        link.classList.add('bg-amber-50', 'text-amber-600');
+                    } else {
+                        link.classList.remove('bg-amber-50', 'text-amber-600');
+                    }
+                });
+            }
+
+            function renderPage() {
+                if (!contentEl) {
+                    console.error('Content element not found');
+                    return;
+                }
+
+                // Clean up chart instance
+                if (chartInstance) {
+                    chartInstance.destroy();
+                    chartInstance = null;
+                }
+                
+                contentEl.innerHTML = '';
+                
+                try {
+                    switch (currentPage) {
+                        case 'dashboard':
+                            contentEl.innerHTML = renderDashboard();
+                            initializeDashboardChart();
+                            break;
+                        case 'insumos':
+                            contentEl.innerHTML = renderInsumosPage();
+                            attachInsumosListeners();
+                            break;
+                        case 'movimentacoes':
+                            contentEl.innerHTML = renderMovimentacoesPage();
+                            attachMovimentacoesListeners();
+                            break;
+                        case 'relatorios':
+                            contentEl.innerHTML = renderRelatoriosPage();
+                            attachRelatoriosListeners();
+                            break;
+                        case 'usuarios':
+                            contentEl.innerHTML = renderUsuariosPage();
+                            attachUsuariosListeners();
+                            break;
+                        default:
+                            console.warn('Unknown page:', currentPage);
+                            navigateTo('dashboard');
+                    }
+                } catch (error) {
+                    console.error('Error rendering page:', error);
+                    contentEl.innerHTML = '<div class="p-4 text-red-500">Erro ao carregar a página. Por favor, recarregue a aplicação.</div>';
+                }
+            }
+
+            // ============================================
+            // PAGE RENDERING FUNCTIONS
+            // ============================================
+
             function renderDashboard() {
                 const totalItems = insumos.length;
                 const lowStockItems = insumos.filter(i => i.saldo <= i.min).length;
-                const stockValue = insumos.reduce((acc, i) => acc + (i.saldo * i.preco), 0).toFixed(2);
+                const stockValue = insumos.reduce((acc, i) => {
+                    const value = (i.saldo || 0) * (i.preco || 0);
+                    return acc + (isNaN(value) ? 0 : value);
+                }, 0);
                 
                 const recentMovs = movimentacoes.slice(0, 5).map(m => {
                     const insumo = insumos.find(i => i.id === m.insumoId);
+                    if (!insumo) return '';
+                    
                     return `
                         <tr class="border-b border-gray-200 hover:bg-gray-50">
-                            <td class="py-3 px-4 text-sm">${insumo.nome}</td>
+                            <td class="py-3 px-4 text-sm">${escapeHtml(insumo.nome)}</td>
                             <td class="py-3 px-4 text-sm">
                                 <span class="px-2 py-1 text-xs rounded-full ${m.tipo === 'ENTRADA' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
-                                    ${m.tipo}
+                                    ${escapeHtml(m.tipo)}
                                 </span>
                             </td>
-                            <td class="py-3 px-4 text-sm">${m.qtd}</td>
-                            <td class="py-3 px-4 text-sm">${new Date(m.data + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                            <td class="py-3 px-4 text-sm">${m.qtd || 0}</td>
+                            <td class="py-3 px-4 text-sm">${formatDate(m.data)}</td>
                         </tr>
                     `;
-                }).join('');
+                }).filter(row => row).join('');
 
                 return `
                     <h2 class="text-3xl font-bold text-gray-800 mb-2">Visão Geral</h2>
@@ -235,7 +382,7 @@
                         </div>
                         <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                             <h3 class="text-gray-500 text-sm font-medium">Valor do Estoque</h3>
-                            <p class="text-3xl font-bold text-gray-800">R$ ${stockValue.replace('.',',')}</p>
+                            <p class="text-3xl font-bold text-gray-800">${formatCurrency(stockValue)}</p>
                         </div>
                     </div>
 
@@ -258,7 +405,7 @@
                                             <th class="py-2 px-4">Data</th>
                                         </tr>
                                     </thead>
-                                    <tbody>${recentMovs}</tbody>
+                                    <tbody>${recentMovs || '<tr><td colspan="4" class="py-4 text-center text-gray-500">Nenhuma movimentação recente</td></tr>'}</tbody>
                                 </table>
                             </div>
                         </div>
@@ -267,25 +414,34 @@
             }
 
             function renderInsumosPage() {
-                const insumosRows = insumos.map(insumo => `
-                    <tr class="insumo-row border-b border-gray-200 hover:bg-gray-50" data-nome="${insumo.nome.toLowerCase()}">
-                        <td class="py-3 px-4">
-                            <p class="font-semibold">${insumo.nome}</p>
-                            <p class="text-xs text-gray-500">SKU: ${insumo.sku || 'N/A'}</p>
-                        </td>
-                        <td class="py-3 px-4 text-center">${insumo.saldo} ${insumo.unidade}</td>
-                        <td class="py-3 px-4 text-center ${insumo.saldo <= insumo.min ? 'text-red-500 font-bold' : ''}">${insumo.min} ${insumo.unidade}</td>
-                        <td class="py-3 px-4 text-right">R$ ${insumo.preco.toFixed(2).replace('.',',')}</td>
-                        <td class="py-3 px-4 text-center">
-                            <button class="edit-insumo-btn p-1 text-gray-400 hover:text-blue-500" data-id="${insumo.id}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.536L16.732 3.732z"></path></svg>
-                            </button>
-                            <button class="delete-insumo-btn p-1 text-gray-400 hover:text-red-500" data-id="${insumo.id}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                            </button>
-                        </td>
-                    </tr>
-                `).join('');
+                const insumosRows = insumos.map(insumo => {
+                    const nome = escapeHtml(insumo.nome || '');
+                    const sku = escapeHtml(insumo.sku || 'N/A');
+                    const saldo = insumo.saldo || 0;
+                    const min = insumo.min || 0;
+                    const preco = insumo.preco || 0;
+                    const unidade = escapeHtml(insumo.unidade || '');
+                    
+                    return `
+                        <tr class="insumo-row border-b border-gray-200 hover:bg-gray-50" data-nome="${nome.toLowerCase()}">
+                            <td class="py-3 px-4">
+                                <p class="font-semibold">${nome}</p>
+                                <p class="text-xs text-gray-500">SKU: ${sku}</p>
+                            </td>
+                            <td class="py-3 px-4 text-center">${saldo} ${unidade}</td>
+                            <td class="py-3 px-4 text-center ${saldo <= min ? 'text-red-500 font-bold' : ''}">${min} ${unidade}</td>
+                            <td class="py-3 px-4 text-right">${formatCurrency(preco)}</td>
+                            <td class="py-3 px-4 text-center">
+                                <button class="edit-insumo-btn p-1 text-gray-400 hover:text-blue-500" data-id="${insumo.id}" aria-label="Editar insumo">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.536L16.732 3.732z"></path></svg>
+                                </button>
+                                <button class="delete-insumo-btn p-1 text-gray-400 hover:text-red-500" data-id="${insumo.id}" aria-label="Excluir insumo">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
 
                 return `
                     <div class="flex justify-between items-center mb-6">
@@ -318,20 +474,26 @@
             function renderMovimentacoesPage() {
                 const movRows = movimentacoes.map(m => {
                     const insumo = insumos.find(i => i.id === m.insumoId);
+                    if (!insumo) return '';
+                    
+                    const nome = escapeHtml(insumo.nome || '');
+                    const nfReq = escapeHtml(m.nf_req || '');
+                    const tipo = escapeHtml(m.tipo || '');
+                    
                     return `
-                        <tr class="mov-row border-b border-gray-200 hover:bg-gray-50" data-nome="${insumo.nome.toLowerCase()}" data-tipo="${m.tipo.toLowerCase()}">
-                            <td class="py-3 px-4">${new Date(m.data + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
-                            <td class="py-3 px-4">${insumo.nome}</td>
-                            <td class="py-3 px-4">${m.nf_req}</td>
+                        <tr class="mov-row border-b border-gray-200 hover:bg-gray-50" data-nome="${nome.toLowerCase()}" data-tipo="${tipo.toLowerCase()}">
+                            <td class="py-3 px-4">${formatDate(m.data)}</td>
+                            <td class="py-3 px-4">${nome}</td>
+                            <td class="py-3 px-4">${nfReq}</td>
                             <td class="py-3 px-4">
                                 <span class="px-2 py-1 text-xs rounded-full ${m.tipo === 'ENTRADA' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">
-                                    ${m.tipo}
+                                    ${tipo}
                                 </span>
                             </td>
-                            <td class="py-3 px-4 text-right">${m.qtd}</td>
+                            <td class="py-3 px-4 text-right">${m.qtd || 0}</td>
                         </tr>
                     `;
-                }).join('');
+                }).filter(row => row).join('');
 
                 return `
                     <div class="flex justify-between items-center mb-6">
@@ -395,17 +557,22 @@
             }
             
             function renderUsuariosPage() {
-                 const userRows = usuarios.map(user => `
-                    <tr class="border-b border-gray-200 hover:bg-gray-50">
-                        <td class="py-3 px-4">${user.email}</td>
-                        <td class="py-3 px-4">${user.role}</td>
-                        <td class="py-3 px-4 text-center">
-                            <button class="p-1 text-gray-400 hover:text-red-500" data-id="${user.id}">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                            </button>
-                        </td>
-                    </tr>
-                `).join('');
+                 const userRows = usuarios.map(user => {
+                     const email = escapeHtml(user.email || '');
+                     const role = escapeHtml(user.role || '');
+                     
+                     return `
+                        <tr class="border-b border-gray-200 hover:bg-gray-50">
+                            <td class="py-3 px-4">${email}</td>
+                            <td class="py-3 px-4">${role}</td>
+                            <td class="py-3 px-4 text-center">
+                                <button class="delete-user-btn p-1 text-gray-400 hover:text-red-500" data-id="${user.id}" aria-label="Excluir usuário">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                 }).join('');
 
                 return `
                     <div class="flex justify-between items-center mb-6">
@@ -432,42 +599,70 @@
                 `;
             }
 
-            // --- CHART ---
+            // ============================================
+            // CHART INITIALIZATION
+            // ============================================
+            
             function initializeDashboardChart() {
-                const ctx = document.getElementById('stockChart')?.getContext('2d');
-                if (!ctx) return;
+                try {
+                    const canvas = document.getElementById('stockChart');
+                    if (!canvas) {
+                        console.warn('Chart canvas not found');
+                        return;
+                    }
+                    
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        console.warn('Could not get 2D context');
+                        return;
+                    }
 
-                const sortedInsumos = [...insumos].sort((a, b) => b.saldo - a.saldo).slice(0, 5);
-                const labels = sortedInsumos.map(i => i.nome.length > 25 ? i.nome.substring(0, 22) + '...' : i.nome);
-                const data = sortedInsumos.map(i => i.saldo);
+                    const sortedInsumos = [...insumos]
+                        .filter(i => i.saldo !== undefined && i.saldo !== null)
+                        .sort((a, b) => (b.saldo || 0) - (a.saldo || 0))
+                        .slice(0, 5);
+                    
+                    if (sortedInsumos.length === 0) {
+                        console.warn('No data available for chart');
+                        return;
+                    }
+                    
+                    const labels = sortedInsumos.map(i => {
+                        const nome = i.nome || '';
+                        return nome.length > 25 ? nome.substring(0, 22) + '...' : nome;
+                    });
+                    const data = sortedInsumos.map(i => i.saldo || 0);
 
-                chartInstance = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Saldo em Estoque',
-                            data: data,
-                            backgroundColor: 'rgba(245, 158, 11, 0.6)',
-                            borderColor: 'rgba(217, 119, 6, 1)',
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: {
-                                beginAtZero: true
-                            }
+                    chartInstance = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: 'Saldo em Estoque',
+                                data: data,
+                                backgroundColor: 'rgba(245, 158, 11, 0.6)',
+                                borderColor: 'rgba(217, 119, 6, 1)',
+                                borderWidth: 1
+                            }]
                         },
-                        plugins: {
-                            legend: {
-                                display: false
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                }
                             }
                         }
-                    }
-                });
+                    });
+                } catch (error) {
+                    console.error('Error initializing chart:', error);
+                }
             }
 
             // --- MODAL HANDLING ---
@@ -623,97 +818,251 @@
                 typeFilter.addEventListener('change', filterMovs);
             }
             
+            // ============================================
+            // CSV EXPORT
+            // ============================================
+            
+            /**
+             * Escape CSV field to handle commas and quotes
+             * @param {string} field - Field to escape
+             * @returns {string} Escaped field
+             */
+            function escapeCsvField(field) {
+                if (field === null || field === undefined) return '';
+                const str = String(field);
+                if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            }
+
             function attachRelatoriosListeners() {
-                document.getElementById('export-csv-btn').addEventListener('click', () => {
-                    const startDate = document.getElementById('start-date').value;
-                    const endDate = document.getElementById('end-date').value;
-                    
-                    let dataToExport = movimentacoes;
+                const exportBtn = document.getElementById('export-csv-btn');
+                if (!exportBtn) return;
+                
+                exportBtn.addEventListener('click', () => {
+                    try {
+                        const startDate = document.getElementById('start-date')?.value || '';
+                        const endDate = document.getElementById('end-date')?.value || '';
+                        
+                        let dataToExport = [...movimentacoes];
 
-                    if (startDate && endDate) {
-                        dataToExport = dataToExport.filter(m => m.data >= startDate && m.data <= endDate);
+                        // Validate date range
+                        if (startDate && endDate) {
+                            if (startDate > endDate) {
+                                alert('A data de início deve ser anterior à data de fim.');
+                                return;
+                            }
+                            dataToExport = dataToExport.filter(m => {
+                                if (!m.data) return false;
+                                return m.data >= startDate && m.data <= endDate;
+                            });
+                        } else if (startDate || endDate) {
+                            alert('Por favor, selecione ambas as datas ou deixe ambas em branco.');
+                            return;
+                        }
+                        
+                        if (dataToExport.length === 0) {
+                            alert('Nenhuma movimentação encontrada para o período selecionado.');
+                            return;
+                        }
+
+                        // Sort by date (newest first)
+                        dataToExport.sort((a, b) => {
+                            if (!a.data || !b.data) return 0;
+                            return b.data.localeCompare(a.data);
+                        });
+
+                        const headers = ['Data', 'Produto', 'Tipo', 'Quantidade', 'NF/REQ'];
+                        const csvRows = [headers.map(escapeCsvField).join(',')];
+
+                        dataToExport.forEach(mov => {
+                            const insumo = insumos.find(i => i.id === mov.insumoId);
+                            if (!insumo) return;
+                            
+                            const row = [
+                                formatDate(mov.data),
+                                insumo.nome || '',
+                                mov.tipo || '',
+                                mov.qtd || 0,
+                                mov.nf_req || ''
+                            ];
+                            csvRows.push(row.map(escapeCsvField).join(','));
+                        });
+
+                        const csvString = csvRows.join('\n');
+                        const blob = new Blob(['\ufeff' + csvString], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+                        const link = document.createElement('a');
+                        const url = URL.createObjectURL(blob);
+                        link.setAttribute('href', url);
+                        link.setAttribute('download', `relatorio_movimentacoes_${new Date().toISOString().slice(0,10)}.csv`);
+                        link.style.visibility = 'hidden';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                    } catch (error) {
+                        console.error('Error exporting CSV:', error);
+                        alert('Erro ao exportar relatório. Por favor, tente novamente.');
                     }
-                    
-                    if (dataToExport.length === 0) {
-                        alert('Nenhuma movimentação encontrada para o período selecionado.');
-                        return;
-                    }
-
-                    const headers = ['Data', 'Produto', 'Tipo', 'Quantidade', 'NF/REQ'];
-                    const csvRows = [headers.join(',')];
-
-                    dataToExport.forEach(mov => {
-                        const insumo = insumos.find(i => i.id === mov.insumoId);
-                        const row = [
-                            new Date(mov.data + 'T00:00:00').toLocaleDateString('pt-BR'),
-                            `"${insumo.nome}"`,
-                            mov.tipo,
-                            mov.qtd,
-                            `"${mov.nf_req}"`
-                        ];
-                        csvRows.push(row.join(','));
-                    });
-
-                    const csvString = csvRows.join('\n');
-                    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-                    const link = document.createElement('a');
-                    const url = URL.createObjectURL(blob);
-                    link.setAttribute('href', url);
-                    link.setAttribute('download', 'relatorio_movimentacoes.csv');
-                    link.style.visibility = 'hidden';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
                 });
             }
 
             function attachUsuariosListeners() {
-                // Logic for adding/deleting users would go here
+                const addUserBtn = document.getElementById('add-user-btn');
+                if (addUserBtn) {
+                    addUserBtn.addEventListener('click', () => {
+                        const email = prompt('Digite o email do novo usuário:');
+                        if (email && isValidEmail(email)) {
+                            const role = prompt('Digite a permissão (Admin ou User):', 'User');
+                            if (role && (role === 'Admin' || role === 'User')) {
+                                usuarios.push({
+                                    id: Date.now(),
+                                    email: email.trim(),
+                                    role: role
+                                });
+                                renderPage();
+                            } else {
+                                alert('Permissão inválida. Use "Admin" ou "User".');
+                            }
+                        } else if (email) {
+                            alert('Email inválido. Por favor, digite um email válido.');
+                        }
+                    });
+                }
+                
+                const usersTableBody = document.getElementById('users-table-body');
+                if (usersTableBody) {
+                    usersTableBody.addEventListener('click', (e) => {
+                        const deleteBtn = e.target.closest('.delete-user-btn');
+                        if (deleteBtn) {
+                            const userId = parseInt(deleteBtn.dataset.id, 10);
+                            if (confirm('Tem certeza que deseja excluir este usuário?')) {
+                                usuarios = usuarios.filter(u => u.id !== userId);
+                                renderPage();
+                            }
+                        }
+                    });
+                }
             }
 
+            // ============================================
+            // FORM HANDLING
+            // ============================================
+            
             document.body.addEventListener('submit', (e) => {
-                 if (e.target.id === 'insumo-form') {
+                if (e.target.id === 'insumo-form') {
                     e.preventDefault();
-                    const formData = new FormData(e.target);
-                    const insumoData = Object.fromEntries(formData.entries());
-                    insumoData.preco = parseFloat(insumoData.preco);
-                    insumoData.min = parseInt(insumoData.min, 10);
-
-                    if (insumoData.id) { // Update
-                        const index = insumos.findIndex(i => i.id == insumoData.id);
-                        insumos[index] = { ...insumos[index], ...insumoData };
-                    } else { // Create
-                        insumoData.id = Date.now();
-                        insumoData.saldo = 0; // New items start with 0 stock
-                        insumos.push(insumoData);
-                    }
-                    closeModal();
-                    renderPage();
-                }
-                if (e.target.id === 'mov-form') {
-                    e.preventDefault();
-                    const formData = new FormData(e.target);
-                    const movData = Object.fromEntries(formData.entries());
-                    movData.id = Date.now();
-                    movData.insumoId = parseInt(movData.insumoId, 10);
-                    movData.qtd = parseInt(movData.qtd, 10);
-
-                    const insumo = insumos.find(i => i.id === movData.insumoId);
-                    if (movData.tipo === 'ENTRADA') {
-                        insumo.saldo += movData.qtd;
-                    } else {
-                        if (insumo.saldo < movData.qtd) {
-                            alert('Saldo insuficiente para esta saída.');
+                    try {
+                        const formData = new FormData(e.target);
+                        const insumoData = Object.fromEntries(formData.entries());
+                        
+                        // Validation
+                        if (!insumoData.nome || insumoData.nome.trim() === '') {
+                            alert('Por favor, informe o nome do produto.');
                             return;
                         }
-                        insumo.saldo -= movData.qtd;
+                        
+                        const preco = parseFloat(insumoData.preco);
+                        if (!isValidPositiveNumber(preco)) {
+                            alert('Por favor, informe um preço válido (maior ou igual a zero).');
+                            return;
+                        }
+                        
+                        const min = parseInt(insumoData.min, 10);
+                        if (!isValidPositiveNumber(min)) {
+                            alert('Por favor, informe um estoque mínimo válido (maior ou igual a zero).');
+                            return;
+                        }
+                        
+                        insumoData.preco = preco;
+                        insumoData.min = min;
+                        insumoData.nome = insumoData.nome.trim();
+                        insumoData.unidade = (insumoData.unidade || '').trim();
+                        insumoData.sku = (insumoData.sku || '').trim();
+
+                        if (insumoData.id) { // Update
+                            const index = insumos.findIndex(i => i.id == insumoData.id);
+                            if (index === -1) {
+                                alert('Insumo não encontrado.');
+                                return;
+                            }
+                            // Preserve saldo when updating
+                            insumos[index] = { ...insumos[index], ...insumoData, saldo: insumos[index].saldo };
+                        } else { // Create
+                            insumoData.id = Date.now();
+                            insumoData.saldo = 0; // New items start with 0 stock
+                            insumos.push(insumoData);
+                        }
+                        closeModal();
+                        renderPage();
+                    } catch (error) {
+                        console.error('Error saving insumo:', error);
+                        alert('Erro ao salvar insumo. Por favor, tente novamente.');
                     }
-                    movimentacoes.unshift(movData); // Add to beginning of array
-                    closeModal();
-                    navigateTo('movimentacoes');
+                }
+                
+                if (e.target.id === 'mov-form') {
+                    e.preventDefault();
+                    try {
+                        const formData = new FormData(e.target);
+                        const movData = Object.fromEntries(formData.entries());
+                        
+                        // Validation
+                        const insumoId = parseInt(movData.insumoId, 10);
+                        if (isNaN(insumoId)) {
+                            alert('Por favor, selecione um produto.');
+                            return;
+                        }
+                        
+                        const insumo = insumos.find(i => i.id === insumoId);
+                        if (!insumo) {
+                            alert('Produto não encontrado.');
+                            return;
+                        }
+                        
+                        const qtd = parseInt(movData.qtd, 10);
+                        if (!isValidPositiveNumber(qtd) || qtd === 0) {
+                            alert('Por favor, informe uma quantidade válida (maior que zero).');
+                            return;
+                        }
+                        
+                        if (!movData.data) {
+                            alert('Por favor, informe a data da movimentação.');
+                            return;
+                        }
+                        
+                        movData.id = Date.now();
+                        movData.insumoId = insumoId;
+                        movData.qtd = qtd;
+                        movData.nf_req = (movData.nf_req || '').trim();
+
+                        // Update stock
+                        if (movData.tipo === 'ENTRADA') {
+                            insumo.saldo = (insumo.saldo || 0) + qtd;
+                        } else {
+                            if ((insumo.saldo || 0) < qtd) {
+                                alert('Saldo insuficiente para esta saída.');
+                                return;
+                            }
+                            insumo.saldo = (insumo.saldo || 0) - qtd;
+                        }
+                        
+                        movimentacoes.unshift(movData); // Add to beginning of array
+                        closeModal();
+                        navigateTo('movimentacoes');
+                    } catch (error) {
+                        console.error('Error saving movimentacao:', error);
+                        alert('Erro ao registrar movimentação. Por favor, tente novamente.');
+                    }
                 }
             });
 
+            // ============================================
+            // INITIALIZATION
+            // ============================================
+            
+            // Setup navigation
             navLinks.forEach(link => {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -722,8 +1071,12 @@
             });
 
             // Initial Page Load
-            navigateTo('dashboard');
-        });
+            if (contentEl) {
+                navigateTo('dashboard');
+            } else {
+                console.error('Application initialization failed: content element not found');
+            }
+        })();
     </script>
 </body>
 </html>
